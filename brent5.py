@@ -20,7 +20,7 @@ file_path = 'brent_history2.csv'
 def load_data(path):
   df = pd.read_csv(path, sep=',', quotechar='"')
   df['Цена'] = df['Цена'].astype(str).str.replace(',', '.').astype(float)
-  # Приводим даты к единому формату и сортируем СТРОГО от старых к новым для всей базы
+  # Сортируем строго от старых к новым
   df['temp_dt'] = pd.to_datetime(df['Дата'], dayfirst=True, errors='coerce')
   df = df.sort_values('temp_dt').drop(columns=['temp_dt']).reset_index(drop=True)
   return df
@@ -74,10 +74,9 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- СТРОГИЙ И ЧЕСТНЫЙ РАСЧЕТ С УЧЕТОМ ИНДЕКСАЦИИ ---
+# --- РАСЧЕТ ПО ПОСЛЕДНИМ СВЕЖИМ ДНЯМ ИЗ КОНЦА БАЗЫ ---
 def calculate_strategy(df_data):
-  # На входе df_data уже отсортирован от старых к новым в load_data
-  # Берем последние 60 дней для актуального среза структуры
+  # Берем САМЫЕ ПОСЛЕДНИЕ 60 дней (хвост датафрейма, где 2026 год)
   df_subset = df_data.tail(60).reset_index(drop=True) if len(df_data) > 60 else df_data.copy()
 
   prices = df_subset['Цена'].tolist()
@@ -110,7 +109,7 @@ def calculate_strategy(df_data):
       if p < current_min:
         trend = 'SHORT'
         entry_price = p
-        entry_date = d  # Теперь индекс совпадает на 100% с правильной датой!
+        entry_date = d
         current_max = prev_p
         pullback_max = p
       else:
@@ -128,7 +127,7 @@ def calculate_strategy(df_data):
       if p > current_max:
         trend = 'LONG'
         entry_price = p
-        entry_date = d  # Четкая синхронизация даты и цены
+        entry_date = d
         current_min = prev_p
         pullback_min = p
       else:
@@ -146,7 +145,7 @@ current_position, entry_p, entry_d = calculate_strategy(df_raw)
 # --- БЛОК СТАТУСА СТРАТЕГИИ ---
 st.subheader('⚙️ Текущий статус по системе')
 
-# Для отображения сверху вниз (новые даты первыми) разворачиваем копию
+# Для отображения на экране разворачиваем задом наперед, чтобы свежие даты были сверху
 df_display_sorted = df_raw.iloc[::-1].reset_index(drop=True)
 
 latest_price = df_display_sorted.iloc[0]['Цена']
