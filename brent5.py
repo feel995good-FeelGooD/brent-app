@@ -71,7 +71,7 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- ИСПРАВЛЕННЫЙ ZIGZAG-АЛГОРИТМ С ПРАВИЛЬНОЙ ПЕРЕЗАПИСЬЮ ---
+# --- АКТУАЛЬНЫЙ РАСЧЕТ ПО СВЕЖЕМУ ОКНУ (БЕЗ ПРИЗРАКОВ 2022 ГОДА) ---
 def calculate_strategy(df_data):
   df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
   df_temp['temp_dt'] = pd.to_datetime(
@@ -82,6 +82,11 @@ def calculate_strategy(df_data):
       .drop(columns=['temp_dt'])
       .reset_index(drop=True)
   )
+
+  # Жестко ограничиваем расчет последними 75 днями,
+  # чтобы экстремумы строились исключительно по актуальному рынку
+  if len(df_sorted) > 75:
+    df_sorted = df_sorted.tail(75).reset_index(drop=True)
 
   prices = df_sorted['Цена'].tolist()
   dates = df_sorted['Дата'].tolist()
@@ -110,7 +115,6 @@ def calculate_strategy(df_data):
         current_max = p
         pullback_min = p
 
-      # Сначала проверяем слом структуры (пробой минимума вниз)
       if p < current_min:
         trend = 'SHORT'
         entry_price = p
@@ -118,10 +122,8 @@ def calculate_strategy(df_data):
         current_max = prev_p
         pullback_max = p
       else:
-        # Если не пробили, обновляем локальный откат
         if p < pullback_min:
           pullback_min = p
-        # Если откат закончился и пошел рост — обновляем опорный минимум
         if i > 1 and prices[i - 1] < prices[i - 2] and p > prev_p:
           current_min = pullback_min
           pullback_min = p
@@ -131,7 +133,6 @@ def calculate_strategy(df_data):
         current_min = p
         pullback_max = p
 
-      # Сначала проверяем слом структуры (пробой максимума вверх)
       if p > current_max:
         trend = 'LONG'
         entry_price = p
