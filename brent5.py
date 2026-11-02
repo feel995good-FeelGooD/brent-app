@@ -39,7 +39,7 @@ st.markdown(
 )
 
 # Путь к вашему файлу с историей
-file_path = r'D:\brent\brent_history2.csv'
+file_path = 'brent_history2.csv'
 
 
 # Функция загрузки данных с защитой от ошибок
