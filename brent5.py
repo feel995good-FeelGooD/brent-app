@@ -20,6 +20,9 @@ file_path = 'brent_history2.csv'
 def load_data(path):
   df = pd.read_csv(path, sep=',', quotechar='"')
   df['Цена'] = df['Цена'].astype(str).str.replace(',', '.').astype(float)
+  # Приводим даты к единому формату и сортируем СТРОГО от старых к новым для всей базы
+  df['temp_dt'] = pd.to_datetime(df['Дата'], dayfirst=True, errors='coerce')
+  df = df.sort_values('temp_dt').drop(columns=['temp_dt']).reset_index(drop=True)
   return df
 
 
@@ -71,25 +74,14 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- АКТУАЛЬНЫЙ РАСЧЕТ ПО СВЕЖЕМУ ОКНУ (БЕЗ ПРИЗРАКОВ 2022 ГОДА) ---
+# --- СТРОГИЙ И ЧЕСТНЫЙ РАСЧЕТ С УЧЕТОМ ИНДЕКСАЦИИ ---
 def calculate_strategy(df_data):
-  df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
-  df_temp['temp_dt'] = pd.to_datetime(
-      df_temp['Дата'], dayfirst=True, errors='coerce'
-  )
-  df_sorted = (
-      df_temp.sort_values('temp_dt')
-      .drop(columns=['temp_dt'])
-      .reset_index(drop=True)
-  )
+  # На входе df_data уже отсортирован от старых к новым в load_data
+  # Берем последние 60 дней для актуального среза структуры
+  df_subset = df_data.tail(60).reset_index(drop=True) if len(df_data) > 60 else df_data.copy()
 
-  # Жестко ограничиваем расчет последними 75 днями,
-  # чтобы экстремумы строились исключительно по актуальному рынку
-  if len(df_sorted) > 75:
-    df_sorted = df_sorted.tail(75).reset_index(drop=True)
-
-  prices = df_sorted['Цена'].tolist()
-  dates = df_sorted['Дата'].tolist()
+  prices = df_subset['Цена'].tolist()
+  dates = df_subset['Дата'].tolist()
 
   if len(prices) < 2:
     return 'ВНЕ РЫНКА', prices[-1] if prices else 0, dates[-1] if dates else ''
@@ -118,7 +110,7 @@ def calculate_strategy(df_data):
       if p < current_min:
         trend = 'SHORT'
         entry_price = p
-        entry_date = d
+        entry_date = d  # Теперь индекс совпадает на 100% с правильной датой!
         current_max = prev_p
         pullback_max = p
       else:
@@ -136,7 +128,7 @@ def calculate_strategy(df_data):
       if p > current_max:
         trend = 'LONG'
         entry_price = p
-        entry_date = d
+        entry_date = d  # Четкая синхронизация даты и цены
         current_min = prev_p
         pullback_min = p
       else:
@@ -149,21 +141,13 @@ def calculate_strategy(df_data):
   return trend, entry_price, entry_date
 
 
-# Подготовка датафрейма для отображения (свежие даты сверху)
-df_display_prep = df_raw.copy()
-df_display_prep['temp_dt'] = pd.to_datetime(
-    df_display_prep['Дата'], dayfirst=True, errors='coerce'
-)
-df_display_sorted = (
-    df_display_prep.sort_values('temp_dt', ascending=False)
-    .drop(columns=['temp_dt'])
-    .reset_index(drop=True)
-)
-
 current_position, entry_p, entry_d = calculate_strategy(df_raw)
 
 # --- БЛОК СТАТУСА СТРАТЕГИИ ---
 st.subheader('⚙️ Текущий статус по системе')
+
+# Для отображения сверху вниз (новые даты первыми) разворачиваем копию
+df_display_sorted = df_raw.iloc[::-1].reset_index(drop=True)
 
 latest_price = df_display_sorted.iloc[0]['Цена']
 diff_val = (
