@@ -12,7 +12,10 @@ st.markdown(
 )
 
 # Путь к вашему файлу с историей
-file_path = r'D:\brent\brent_history2.csv'
+# Путь к файлу с историей в корне проекта
+file_path = 'brent_history2.csv'
+
+
 
 
 # Функция загрузки данных с защитой от ошибок
