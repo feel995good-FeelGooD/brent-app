@@ -71,7 +71,7 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- ПРАВИЛЬНЫЙ ZIGZAG-АЛГОРИТМ С ПОСТОЯННОЙ ПЕРЕЗАПИСЬЮ ЭКСТРЕМУМОВ ---
+# --- ИСПРАВЛЕННЫЙ ZIGZAG-АЛГОРИТМ С ПРАВИЛЬНОЙ ПЕРЕЗАПИСЬЮ ---
 def calculate_strategy(df_data):
   df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
   df_temp['temp_dt'] = pd.to_datetime(
@@ -89,15 +89,16 @@ def calculate_strategy(df_data):
   if len(prices) < 2:
     return 'ВНЕ РЫНКА', prices[-1] if prices else 0, dates[-1] if dates else ''
 
-  # Инициализация с самых первых шагов
   trend = 'LONG' if prices[1] >= prices[0] else 'SHORT'
-  
-  # Опорные экстремумы, которые будут постоянно перезаписываться на лету
+
   current_max = max(prices[0], prices[1])
   current_min = min(prices[0], prices[1])
-  
+
   entry_price = prices[0]
   entry_date = dates[0]
+
+  pullback_min = prices[0]
+  pullback_max = prices[0]
 
   for i in range(1, len(prices)):
     p = prices[i]
@@ -105,36 +106,44 @@ def calculate_strategy(df_data):
     prev_p = prices[i - 1]
 
     if trend == 'LONG':
-      # Если растем — постоянно обновляем (перезаписываем) максимум вверх
       if p > current_max:
         current_max = p
-      
-      # Если пошли вниз (откат), обновляем минимум отката
-      if p < prev_p:
-        current_min = p
+        pullback_min = p
 
-      # Слом структуры: если цена пробила текущий локальный минимум вниз -> переворот в SHORT
+      # Сначала проверяем слом структуры (пробой минимума вниз)
       if p < current_min:
         trend = 'SHORT'
         entry_price = p
         entry_date = d
-        current_max = prev_p  # Фиксируем прошлый верх как базу для шорта
-        
+        current_max = prev_p
+        pullback_max = p
+      else:
+        # Если не пробили, обновляем локальный откат
+        if p < pullback_min:
+          pullback_min = p
+        # Если откат закончился и пошел рост — обновляем опорный минимум
+        if i > 1 and prices[i - 1] < prices[i - 2] and p > prev_p:
+          current_min = pullback_min
+          pullback_min = p
+
     else:  # SHORT
-      # Если падаем — постоянно обновляем (перезаписываем) минимум вниз
       if p < current_min:
         current_min = p
-        
-      # Если пошли вверх (отскок), фиксируем откат
-      if p > prev_p:
-        current_max = p
+        pullback_max = p
 
-      # Слом структуры: если цена пробила текущий локальный максимум вверх -> переворот в LONG
+      # Сначала проверяем слом структуры (пробой максимума вверх)
       if p > current_max:
         trend = 'LONG'
         entry_price = p
         entry_date = d
-        current_min = prev_p  # Фиксируем прошлый низ как базу для лонга
+        current_min = prev_p
+        pullback_min = p
+      else:
+        if p > pullback_max:
+          pullback_max = p
+        if i > 1 and prices[i - 1] > prices[i - 2] and p < prev_p:
+          current_max = pullback_max
+          pullback_max = p
 
   return trend, entry_price, entry_date
 
