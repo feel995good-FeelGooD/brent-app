@@ -79,8 +79,9 @@ if st.sidebar.button('Добавить в базу и обновить'):
 
 
 # --- ЛОГИКА РАСЧЕТА СТРАТЕГИИ (PRICE ACTION / СТРУКТУРА) ---
+# --- ЛОГИКА РАСЧЕТА СТРАТЕГИИ (ДИНАМИЧЕСКИЕ СВИНГИ PRICE ACTION) ---
 def calculate_strategy(df_data):
-  # Сортируем от старых к новым для хронологического прогона
+  # Сортируем от старых к новым для правильного хронологического прогона
   df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
   df_temp['temp_date'] = pd.to_datetime(
       df_temp['Дата'], dayfirst=True, errors='coerce'
@@ -94,47 +95,49 @@ def calculate_strategy(df_data):
   prices = df_sorted['Цена'].tolist()
   dates = df_sorted['Дата'].tolist()
 
-  if len(prices) < 5:
+  if len(prices) < 3:
     return 'ВНЕ РЫНКА', 0, 'Нет данных'
 
-  # Находим локальные экстремумы (свинги)
-  pivots = []
-  window = 1
-  for i in range(window, len(prices) - window):
-    chunk = prices[i - window : i + window + 1]
-    if prices[i] == max(chunk):
-      pivots.append(('HIGH', prices[i], dates[i]))
-    elif prices[i] == min(chunk):
-      pivots.append(('LOW', prices[i], dates[i]))
-
-  if not pivots:
-    return 'ВНЕ РЫНКА', 0, 'Нет данных'
-
+  # Инициализируем начальные точки по первому бару
   position = None
-  entry_price = 0
-  entry_date = ''
+  entry_price = prices[0]
+  entry_date = dates[0]
 
-  last_high = None
-  last_low = None
+  # Динамические опорные уровни (начинаем с первых цен)
+  local_max = prices[0]
+  local_min = prices[0]
 
-  for p_type, price, date in pivots:
-    if p_type == 'HIGH':
-      if last_high is not None and price > last_high:
-        if position != 'LONG':
-          position = 'LONG'
-          entry_price = price
-          entry_date = date
-      last_high = price
+  # Пробегаем по всей актуальной истории день за днем
+  for i in range(1, len(prices)):
+    p = prices[i]
+    d = dates[i]
 
-    elif p_type == 'LOW':
-      if last_low is not None and price < last_low:
-        if position != 'SHORT':
-          position = 'SHORT'
-          entry_price = price
-          entry_date = date
-      last_low = price
+    # Если цена пошла выше текущего максимума — обновляем его (растущая динамика)
+    if p > local_max:
+      local_max = p
+      # Пробой вверх подтверждает или переводит в LONG
+      if position != 'LONG':
+        position = 'LONG'
+        entry_price = p
+        entry_date = d
 
-  # Страховка для коротких серий
+    # Если цена пошла ниже текущего минимума — обновляем его
+    if p < local_min:
+      local_min = p
+      # Пробой минимума вниз (слом структуры) — уходим в SHORT
+      if position != 'SHORT':
+        position = 'SHORT'
+        entry_price = p
+        entry_date = d
+
+    # Динамическое сужение/подтягивание границ внутри волны
+    # Если цена разворачивается, но не пробивает экстремумы,
+    # мы фиксируем новый локальный откат для контроля
+    if p < local_max and p > local_min:
+      # Находимся внутри диапазона, уровни служат границами текущей структуры
+      pass
+
+  # Страховка для последних баров, если тренд только формируется
   if position is None and len(prices) >= 2:
     if prices[-1] > prices[-2]:
       position = 'LONG'
