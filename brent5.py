@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 
+# Настройка страницы браузера
 st.set_page_config(
     page_title='Дневник трейдера Brent', page_icon='🛢️', layout='wide'
 )
@@ -10,9 +11,11 @@ st.markdown(
     'Контроль тренда, ручной ввод котировок и железная дисциплина по Ливермору.'
 )
 
+# Путь к файлу с историей в корне проекта
 file_path = 'brent_history2.csv'
 
 
+# Функция загрузки данных с защитой от ошибок
 @st.cache_data
 def load_data(path):
   df = pd.read_csv(path, sep=',', quotechar='"')
@@ -68,9 +71,9 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- СТРОГАЯ И ЧИСТАЯ ЛОГИКА РАСЧЕТА НА СПИСКАХ ---
+# --- ЛОГИКА РАСЧЕТА PRICE ACTION (ДИНАМИЧЕСКИЕ МИНИМУМЫ И МАКСИМУМЫ) ---
 def calculate_strategy(df_data):
-  # Создаем изолированную копию и сортируем от старых к новым по хронологии
+  # Сортируем от старых к новым для правильного хронологического прогона
   df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
   df_temp['temp_dt'] = pd.to_datetime(
       df_temp['Дата'], dayfirst=True, errors='coerce'
@@ -81,18 +84,53 @@ def calculate_strategy(df_data):
       .reset_index(drop=True)
   )
 
-  # Превращаем в обычные питоновские списки, чтобы исключить баги датафрейма
   prices = df_sorted['Цена'].tolist()
   dates = df_sorted['Дата'].tolist()
 
-  if len(prices) < 2:
-    return 'ВНЕ РЫНКА', 0, 'Нет данных'
+  if len(prices) < 3:
+    return 'ВНЕ РЫНКА', prices[-1] if prices else 0, dates[-1] if dates else ''
 
-  # Сравниваем самый последний день с предыдущим
-  if prices[-1] > prices[-2]:
-    return 'LONG', prices[-1], dates[-1]
-  else:
-    return 'SHORT', prices[-1], dates[-1]
+  # Инициализация с первого дня
+  position = 'LONG'
+  entry_price = prices[0]
+  entry_date = dates[0]
+
+  current_high = prices[0]
+  current_low = prices[0]
+
+  # Направление текущего движения: 1 = вверх, -1 = вниз
+  direction = 1 if prices[1] >= prices[0] else -1
+
+  for i in range(1, len(prices)):
+    p = prices[i]
+    d = dates[i]
+
+    if direction == 1:
+      if p > current_high:
+        current_high = p
+      elif p < current_high:
+        if p < current_low:
+          position = 'SHORT'
+          entry_price = p
+          entry_date = d
+          current_low = p
+        else:
+          current_low = p
+        direction = -1
+    else:
+      if p < current_low:
+        current_low = p
+      elif p > current_low:
+        if p > current_high:
+          position = 'LONG'
+          entry_price = p
+          entry_date = d
+          current_high = p
+        else:
+          current_high = p
+        direction = 1
+
+  return position, entry_price, entry_date
 
 
 # Подготовка датафрейма для отображения (свежие даты сверху)
