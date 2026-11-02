@@ -71,9 +71,9 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- ЛОГИКА РАСЧЕТА PRICE ACTION (ДИНАМИЧЕСКИЕ МИНИМУМЫ И МАКСИМУМЫ) ---
+# --- ЧЕСТНАЯ ДИНАМИЧЕСКАЯ СИСТЕМА PRICE ACTION С ПЕРЕЗАПИСЬЮ ТОЧЕК ---
 def calculate_strategy(df_data):
-  # Сортируем от старых к новым для правильного хронологического прогона
+  # Сортируем от самых старых к самым новым (строго по хронологии)
   df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
   df_temp['temp_dt'] = pd.to_datetime(
       df_temp['Дата'], dayfirst=True, errors='coerce'
@@ -87,50 +87,48 @@ def calculate_strategy(df_data):
   prices = df_sorted['Цена'].tolist()
   dates = df_sorted['Дата'].tolist()
 
-  if len(prices) < 3:
+  if len(prices) < 2:
     return 'ВНЕ РЫНКА', prices[-1] if prices else 0, dates[-1] if dates else ''
 
-  # Инициализация с первого дня
-  position = 'LONG'
-  entry_price = prices[0]
-  entry_date = dates[0]
+  # Инициализируем стартовую позицию с самого первого дня базы
+  position = 'LONG' if prices[1] >= prices[0] else 'SHORT'
 
-  current_high = prices[0]
-  current_low = prices[0]
+  # Опорные точки тренда (которые постоянно перезаписываются)
+  swing_price = prices[0]
+  swing_date = dates[0]
 
-  # Направление текущего движения: 1 = вверх, -1 = вниз
-  direction = 1 if prices[1] >= prices[0] else -1
+  # Текущие экстремумы для отслеживания отката
+  current_extreme = prices[0]
+  trend_direction = 1 if prices[1] >= prices[0] else -1  # 1 = вверх, -1 = вниз
 
   for i in range(1, len(prices)):
     p = prices[i]
     d = dates[i]
 
-    if direction == 1:
-      if p > current_high:
-        current_high = p
-      elif p < current_high:
-        if p < current_low:
+    if trend_direction == 1:
+      if p > current_extreme:
+        current_extreme = p
+      elif p < current_extreme:
+        if p < swing_price and position == 'LONG':
           position = 'SHORT'
-          entry_price = p
-          entry_date = d
-          current_low = p
-        else:
-          current_low = p
-        direction = -1
-    else:
-      if p < current_low:
-        current_low = p
-      elif p > current_low:
-        if p > current_high:
-          position = 'LONG'
-          entry_price = p
-          entry_date = d
-          current_high = p
-        else:
-          current_high = p
-        direction = 1
+          swing_price = current_extreme
+          swing_date = d
 
-  return position, entry_price, entry_date
+        current_extreme = p
+        trend_direction = -1
+    else:
+      if p < current_extreme:
+        current_extreme = p
+      elif p > current_extreme:
+        if p > swing_price and position == 'SHORT':
+          position = 'LONG'
+          swing_price = current_extreme
+          swing_date = d
+
+        current_extreme = p
+        trend_direction = 1
+
+  return position, swing_price, swing_date
 
 
 # Подготовка датафрейма для отображения (свежие даты сверху)
