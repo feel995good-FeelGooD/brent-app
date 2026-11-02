@@ -11,11 +11,8 @@ st.markdown(
     'Контроль тренда, ручной ввод котировок и железная дисциплина по Ливермору.'
 )
 
-# Путь к вашему файлу с историей
 # Путь к файлу с историей в корне проекта
 file_path = 'brent_history2.csv'
-
-
 
 
 # Функция загрузки данных с защитой от ошибок
@@ -71,7 +68,7 @@ if st.sidebar.button('Добавить в базу и обновить'):
         .reset_index(drop=True)
     )
 
-    # 4. Сохраняем обратно на диск
+    # 4. Сохраняем обратно в диск
     df_disk.to_csv(file_path, index=False, sep=',')
 
     # 5. Сбрасываем кэш и перезапускаем интерфейс
@@ -81,9 +78,9 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- ЛОГИКА РАСЧЕТА СТРАТЕГИИ (ZIGZAG) ---
+# --- ЛОГИКА РАСЧЕТА СТРАТЕГИИ (PRICE ACTION / СТРУКТУРА) ---
 def calculate_strategy(df_data):
-  # Безопасная сортировка от старых к новым для правильного расчета структуры
+  # Сортируем от старых к новым для хронологического прогона
   df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
   df_temp['temp_date'] = pd.to_datetime(
       df_temp['Дата'], dayfirst=True, errors='coerce'
@@ -97,86 +94,56 @@ def calculate_strategy(df_data):
   prices = df_sorted['Цена'].tolist()
   dates = df_sorted['Дата'].tolist()
 
-  if len(prices) < 3:
+  if len(prices) < 5:
     return 'ВНЕ РЫНКА', 0, 'Нет данных'
 
-  extrema_history = []
-  trend = 0
-  best_price = prices[0]
-  reversal_threshold = 2.0  # Порог разворота
+  # Находим локальные экстремумы (свинги)
+  pivots = []
+  window = 1
+  for i in range(window, len(prices) - window):
+    chunk = prices[i - window : i + window + 1]
+    if prices[i] == max(chunk):
+      pivots.append(('HIGH', prices[i], dates[i]))
+    elif prices[i] == min(chunk):
+      pivots.append(('LOW', prices[i], dates[i]))
 
-  for i in range(len(prices)):
-    p = prices[i]
-    d = dates[i]
-
-    if trend == 0:
-      if p > best_price:
-        trend = 1
-        best_price = p
-      elif p < best_price:
-        trend = -1
-        best_price = p
-    elif trend == 1:
-      if p > best_price:
-        best_price = p
-      elif best_price - p >= reversal_threshold:
-        extrema_history.append(('Максимум', best_price, d))
-        trend = -1
-        best_price = p
-    elif trend == -1:
-      if p < best_price:
-        best_price = p
-      elif p - best_price >= reversal_threshold:
-        extrema_history.append(('Минимум', best_price, d))
-        trend = 1
-        best_price = p
+  if not pivots:
+    return 'ВНЕ РЫНКА', 0, 'Нет данных'
 
   position = None
   entry_price = 0
   entry_date = ''
 
-  for i in range(1, len(extrema_history)):
-    tipo, price, date = extrema_history[i]
+  last_high = None
+  last_low = None
 
-    # LONG
-    if (
-        'Минимум' in tipo
-        and position is None
-        and i >= 2
-        and extrema_history[i - 2][0] == 'Минимум'
-    ):
-      if price > extrema_history[i - 2][1]:
-        position = 'LONG'
-        entry_price = price
-        entry_date = date
-    elif (
-        'Максимум' in tipo
-        and position == 'LONG'
-        and i >= 2
-        and extrema_history[i - 2][0] == 'Максимум'
-    ):
-      if price < extrema_history[i - 2][1]:
-        position = None
+  for p_type, price, date in pivots:
+    if p_type == 'HIGH':
+      if last_high is not None and price > last_high:
+        if position != 'LONG':
+          position = 'LONG'
+          entry_price = price
+          entry_date = date
+      last_high = price
 
-    # SHORT
-    if (
-        'Максимум' in tipo
-        and position is None
-        and i >= 2
-        and extrema_history[i - 2][0] == 'Максимум'
-    ):
-      if price < extrema_history[i - 2][1]:
-        position = 'SHORT'
-        entry_price = price
-        entry_date = date
-    elif (
-        'Минимум' in tipo
-        and position == 'SHORT'
-        and i >= 2
-        and extrema_history[i - 2][0] == 'Минимум'
-    ):
-      if price > extrema_history[i - 2][1]:
-        position = None
+    elif p_type == 'LOW':
+      if last_low is not None and price < last_low:
+        if position != 'SHORT':
+          position = 'SHORT'
+          entry_price = price
+          entry_date = date
+      last_low = price
+
+  # Страховка для коротких серий
+  if position is None and len(prices) >= 2:
+    if prices[-1] > prices[-2]:
+      position = 'LONG'
+      entry_price = prices[-1]
+      entry_date = dates[-1]
+    else:
+      position = 'SHORT'
+      entry_price = prices[-1]
+      entry_date = dates[-1]
 
   return position, entry_price, entry_date
 
@@ -197,9 +164,7 @@ current_position, entry_p, entry_d = calculate_strategy(df)
 # --- БЛОК СТАТУСА СТРАТЕГИИ ---
 st.subheader('⚙️ Текущий статус по системе')
 
-latest_price = df_display_sorted.iloc[0][
-    'Цена'
-]  # Самая верхняя строка (последняя актуальная)
+latest_price = df_display_sorted.iloc[0]['Цена']
 diff_val = (
     latest_price - df_display_sorted.iloc[1]['Цена']
     if len(df_display_sorted) > 1
