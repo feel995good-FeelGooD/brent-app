@@ -1,7 +1,6 @@
 import pandas as pd
 import streamlit as st
 
-# Настройка страницы браузера
 st.set_page_config(
     page_title='Дневник трейдера Brent', page_icon='🛢️', layout='wide'
 )
@@ -11,11 +10,9 @@ st.markdown(
     'Контроль тренда, ручной ввод котировок и железная дисциплина по Ливермору.'
 )
 
-# Путь к файлу с историей в корне проекта[span_1](start_span)[span_1](end_span)
 file_path = 'brent_history2.csv'
 
 
-# Функция загрузки данных с защитой от ошибок
 @st.cache_data
 def load_data(path):
   df = pd.read_csv(path, sep=',', quotechar='"')
@@ -24,7 +21,7 @@ def load_data(path):
 
 
 try:
-  df = load_data(file_path)
+  df_raw = load_data(file_path)
 except Exception as e:
   st.error(
       f'Не удалось загрузить файл истории. Проверьте путь: {file_path}\nОшибка:'
@@ -55,7 +52,6 @@ if st.sidebar.button('Добавить в базу и обновить'):
       df_disk = pd.concat([new_row, df_disk], ignore_index=True)
       st.sidebar.success(f'Успешно добавлено: {new_date} — {new_price}')
 
-    # Безопасная сортировка через вспомогательную колонку
     df_disk['temp_dt'] = pd.to_datetime(
         df_disk['Дата'], dayfirst=True, errors='coerce'
     )
@@ -72,8 +68,9 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- БАЗОВАЯ ЛОГИКА РАСЧЕТА (БЕЗ ОШИБОК) ---
+# --- СТРОГАЯ И ЧИСТАЯ ЛОГИКА РАСЧЕТА НА СПИСКАХ ---
 def calculate_strategy(df_data):
+  # Создаем изолированную копию и сортируем от старых к новым по хронологии
   df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
   df_temp['temp_dt'] = pd.to_datetime(
       df_temp['Дата'], dayfirst=True, errors='coerce'
@@ -84,13 +81,14 @@ def calculate_strategy(df_data):
       .reset_index(drop=True)
   )
 
+  # Превращаем в обычные питоновские списки, чтобы исключить баги датафрейма
   prices = df_sorted['Цена'].tolist()
   dates = df_sorted['Дата'].tolist()
 
   if len(prices) < 2:
     return 'ВНЕ РЫНКА', 0, 'Нет данных'
 
-  # Простая и стабильная логика по последним изменениям цены
+  # Сравниваем самый последний день с предыдущим
   if prices[-1] > prices[-2]:
     return 'LONG', prices[-1], dates[-1]
   else:
@@ -98,7 +96,7 @@ def calculate_strategy(df_data):
 
 
 # Подготовка датафрейма для отображения (свежие даты сверху)
-df_display_prep = df.copy()
+df_display_prep = df_raw.copy()
 df_display_prep['temp_dt'] = pd.to_datetime(
     df_display_prep['Дата'], dayfirst=True, errors='coerce'
 )
@@ -108,7 +106,7 @@ df_display_sorted = (
     .reset_index(drop=True)
 )
 
-current_position, entry_p, entry_d = calculate_strategy(df)
+current_position, entry_p, entry_d = calculate_strategy(df_raw)
 
 # --- БЛОК СТАТУСА СТРАТЕГИИ ---
 st.subheader('⚙️ Текущий статус по системе')
