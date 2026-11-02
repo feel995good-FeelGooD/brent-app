@@ -71,9 +71,8 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- ЧЕСТНАЯ ДИНАМИЧЕСКАЯ СИСТЕМА PRICE ACTION С ПЕРЕЗАПИСЬЮ ТОЧЕК ---
+# --- ДИНАМИЧЕСКИЙ РАСЧЕТ С УПОРТОМ НА СВЕЖИЕ ДАННЫЕ ---
 def calculate_strategy(df_data):
-  # Сортируем от самых старых к самым новым (строго по хронологии)
   df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
   df_temp['temp_dt'] = pd.to_datetime(
       df_temp['Дата'], dayfirst=True, errors='coerce'
@@ -84,22 +83,23 @@ def calculate_strategy(df_data):
       .reset_index(drop=True)
   )
 
+  # Берем для актуального тренда последние 60 торговых дней,
+  # чтобы исключить влияние архивов многолетней давности на текущую точку входа
+  if len(df_sorted) > 60:
+    df_sorted = df_sorted.tail(60).reset_index(drop=True)
+
   prices = df_sorted['Цена'].tolist()
   dates = df_sorted['Дата'].tolist()
 
   if len(prices) < 2:
     return 'ВНЕ РЫНКА', prices[-1] if prices else 0, dates[-1] if dates else ''
 
-  # Инициализируем стартовую позицию с самого первого дня базы
   position = 'LONG' if prices[1] >= prices[0] else 'SHORT'
-
-  # Опорные точки тренда (которые постоянно перезаписываются)
   swing_price = prices[0]
   swing_date = dates[0]
 
-  # Текущие экстремумы для отслеживания отката
   current_extreme = prices[0]
-  trend_direction = 1 if prices[1] >= prices[0] else -1  # 1 = вверх, -1 = вниз
+  trend_direction = 1 if prices[1] >= prices[0] else -1
 
   for i in range(1, len(prices)):
     p = prices[i]
