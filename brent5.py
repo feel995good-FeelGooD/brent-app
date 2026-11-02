@@ -71,7 +71,7 @@ if st.sidebar.button('Добавить в базу и обновить'):
     st.sidebar.warning('Пожалуйста, укажите дату!')
 
 
-# --- ДИНАМИЧЕСКИЙ РАСЧЕТ С УПОРТОМ НА СВЕЖИЕ ДАННЫЕ ---
+# --- ПРАВИЛЬНЫЙ ZIGZAG-АЛГОРИТМ С ПОСТОЯННОЙ ПЕРЕЗАПИСЬЮ ЭКСТРЕМУМОВ ---
 def calculate_strategy(df_data):
   df_temp = df_data.dropna(subset=['Дата', 'Цена']).copy()
   df_temp['temp_dt'] = pd.to_datetime(
@@ -83,52 +83,60 @@ def calculate_strategy(df_data):
       .reset_index(drop=True)
   )
 
-  # Берем для актуального тренда последние 60 торговых дней,
-  # чтобы исключить влияние архивов многолетней давности на текущую точку входа
-  if len(df_sorted) > 60:
-    df_sorted = df_sorted.tail(60).reset_index(drop=True)
-
   prices = df_sorted['Цена'].tolist()
   dates = df_sorted['Дата'].tolist()
 
   if len(prices) < 2:
     return 'ВНЕ РЫНКА', prices[-1] if prices else 0, dates[-1] if dates else ''
 
-  position = 'LONG' if prices[1] >= prices[0] else 'SHORT'
-  swing_price = prices[0]
-  swing_date = dates[0]
-
-  current_extreme = prices[0]
-  trend_direction = 1 if prices[1] >= prices[0] else -1
+  # Инициализация с самых первых шагов
+  trend = 'LONG' if prices[1] >= prices[0] else 'SHORT'
+  
+  # Опорные экстремумы, которые будут постоянно перезаписываться на лету
+  current_max = max(prices[0], prices[1])
+  current_min = min(prices[0], prices[1])
+  
+  entry_price = prices[0]
+  entry_date = dates[0]
 
   for i in range(1, len(prices)):
     p = prices[i]
     d = dates[i]
+    prev_p = prices[i - 1]
 
-    if trend_direction == 1:
-      if p > current_extreme:
-        current_extreme = p
-      elif p < current_extreme:
-        if p < swing_price and position == 'LONG':
-          position = 'SHORT'
-          swing_price = current_extreme
-          swing_date = d
+    if trend == 'LONG':
+      # Если растем — постоянно обновляем (перезаписываем) максимум вверх
+      if p > current_max:
+        current_max = p
+      
+      # Если пошли вниз (откат), обновляем минимум отката
+      if p < prev_p:
+        current_min = p
 
-        current_extreme = p
-        trend_direction = -1
-    else:
-      if p < current_extreme:
-        current_extreme = p
-      elif p > current_extreme:
-        if p > swing_price and position == 'SHORT':
-          position = 'LONG'
-          swing_price = current_extreme
-          swing_date = d
+      # Слом структуры: если цена пробила текущий локальный минимум вниз -> переворот в SHORT
+      if p < current_min:
+        trend = 'SHORT'
+        entry_price = p
+        entry_date = d
+        current_max = prev_p  # Фиксируем прошлый верх как базу для шорта
+        
+    else:  # SHORT
+      # Если падаем — постоянно обновляем (перезаписываем) минимум вниз
+      if p < current_min:
+        current_min = p
+        
+      # Если пошли вверх (отскок), фиксируем откат
+      if p > prev_p:
+        current_max = p
 
-        current_extreme = p
-        trend_direction = 1
+      # Слом структуры: если цена пробила текущий локальный максимум вверх -> переворот в LONG
+      if p > current_max:
+        trend = 'LONG'
+        entry_price = p
+        entry_date = d
+        current_min = prev_p  # Фиксируем прошлый низ как базу для лонга
 
-  return position, swing_price, swing_date
+  return trend, entry_price, entry_date
 
 
 # Подготовка датафрейма для отображения (свежие даты сверху)
