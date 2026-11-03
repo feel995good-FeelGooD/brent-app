@@ -87,7 +87,7 @@ if st.sidebar.button('Записать день в дневник'):
     st.sidebar.warning('Укажите дату!')
 
 
-# --- 3. ДИНАМИЧЕСКИЙ ДВИЖОК СОСТОЯНИЙ ---
+# --- 3. ДИНАМИЧЕСКИЙ ДВИЖОК СОСТОЯНИЙ ( ПОСЛЕДНИЕ 10 БАРОВ ) ---
 def run_state_engine(df):
   if len(df) < 2:
     return 'ВНЕ РЫНКА', 0.0, '', 0.0, 0.0
@@ -97,9 +97,47 @@ def run_state_engine(df):
   lows = df['Мин.'].tolist()
   dates = df['Дата'].tolist()
 
-  trend = 'LONG' if prices[1] >= prices[0] else 'SHORT'
-  local_min = min(lows[0], lows[1])
-  local_max = max(highs[0], highs[1])
+  # Берем для поиска локальных экстремумов только последние 10 дней (скользящее окно)
+  window_size = 10
+  recent_lows = lows[-window_size:]
+  recent_highs = highs[-window_size:]
+
+  loc_min = min(recent_lows)
+  loc_max = max(recent_highs)
+
+  # Базовая логика тренда по последним точкам
+  trend = 'LONG' if prices[-1] >= prices[-2] else 'SHORT'
+  entry_price = prices[-1]
+  entry_date = dates[-1]
+
+  # Ищем точку последнего разворота на хвосте
+  for i in range(max(1, len(prices) - window_size), len(prices)):
+    if trend == 'LONG' and prices[i] < loc_min:
+      trend = 'SHORT'
+      entry_price = prices[i]
+      entry_date = dates[i]
+    elif trend == 'SHORT' and prices[i] > loc_max:
+      trend = 'LONG'
+      entry_price = prices[i]
+      entry_date = dates[i]
+
+  return trend, entry_price, entry_date, loc_min, loc_max
+
+
+trend, entry_p, entry_d, loc_min, loc_max = run_state_engine(df_archive)
+
+# Дисплей: самые свежие сверху
+df_display = df_archive.iloc[::-1].reset_index(drop=True)
+today_p = df_display.iloc[0]['Цена']
+yesterday_p = (
+    df_display.iloc[1]['Цена'] if len(df_display) > 1 else today_p
+)
+diff_val = today_p - yesterday_p
+
+# Переопределяем отображаемые локальные мин/макс строго по последним дням для наглядности
+loc_min = df_display.head(10)['Мин.'].min()
+loc_max = df_display.head(10)['Макс.'].max()
+
 
   entry_price = prices[0]
   entry_date = dates[0]
