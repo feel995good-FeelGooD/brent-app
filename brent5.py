@@ -9,7 +9,8 @@ st.set_page_config(
 
 st.title('🛢️ Дневник трейдера: Brent (Динамический движок)')
 st.markdown(
-    'Архитектура: работа с реальными данными архива (Open, High, Low, Close).'
+    'Архитектура: работа с реальными данными архива и окном последних'
+    ' экстремумов.'
 )
 
 file_path = 'brent_history2.csv'
@@ -21,7 +22,7 @@ def load_archive(path):
   # Очищаем названия колонок от лишних пробелов
   df.columns = df.columns.str.strip()
 
-  # Приводим числовые колонки к float (заменяем запятые на точки, если есть)
+  # Приводим числовые колонки к float
   for col in ['Цена', 'Откр.', 'Макс.', 'Мин.']:
     if col in df.columns:
       df[col] = df[col].astype(str).str.replace(',', '.').astype(float)
@@ -31,7 +32,6 @@ def load_archive(path):
       df['Дата'], format='%d.%m.%Y', errors='coerce'
   )
   if df['temp_dt'].isna().all():
-    # Если формат другой, пробуем общий парсер
     df['temp_dt'] = pd.to_datetime(df['Дата'], dayfirst=True, errors='coerce')
 
   # Сортируем СТРОГО от старых к новым (чтобы начало было в 2022, а конец в 2026)
@@ -97,124 +97,9 @@ def run_state_engine(df):
   lows = df['Мин.'].tolist()
   dates = df['Дата'].tolist()
 
-  # Берем для поиска локальных экстремумов только последние 10 дней (скользящее окно)
+  # Скользящее окно: берем последние 10 дней для локальных экстремумов
   window_size = 10
   recent_lows = lows[-window_size:]
   recent_highs = highs[-window_size:]
 
-  loc_min = min(recent_lows)
-  loc_max = max(recent_highs)
-
-  # Базовая логика тренда по последним точкам
-  trend = 'LONG' if prices[-1] >= prices[-2] else 'SHORT'
-  entry_price = prices[-1]
-  entry_date = dates[-1]
-
-  # Ищем точку последнего разворота на хвосте
-  for i in range(max(1, len(prices) - window_size), len(prices)):
-    if trend == 'LONG' and prices[i] < loc_min:
-      trend = 'SHORT'
-      entry_price = prices[i]
-      entry_date = dates[i]
-    elif trend == 'SHORT' and prices[i] > loc_max:
-      trend = 'LONG'
-      entry_price = prices[i]
-      entry_date = dates[i]
-
-  return trend, entry_price, entry_date, loc_min, loc_max
-
-
-trend, entry_p, entry_d, loc_min, loc_max = run_state_engine(df_archive)
-
-# Дисплей: самые свежие сверху
-df_display = df_archive.iloc[::-1].reset_index(drop=True)
-today_p = df_display.iloc[0]['Цена']
-yesterday_p = (
-    df_display.iloc[1]['Цена'] if len(df_display) > 1 else today_p
-)
-diff_val = today_p - yesterday_p
-
-# Переопределяем отображаемые локальные мин/макс строго по последним дням для наглядности
-loc_min = df_display.head(10)['Мин.'].min()
-loc_max = df_display.head(10)['Макс.'].max()
-
-
-  entry_price = prices[0]
-  entry_date = dates[0]
-
-  for i in range(1, len(prices)):
-    curr_p = prices[i]
-    curr_h = highs[i]
-    curr_l = lows[i]
-    curr_d = dates[i]
-
-    if trend == 'LONG':
-      if curr_h > local_max:
-        local_max = curr_h
-      if curr_l < local_min:
-        # Слом структуры вниз -> переворот в SHORT
-        trend = 'SHORT'
-        entry_price = curr_p
-        entry_date = curr_d
-        local_max = curr_h  # Новый ориентир для шорта
-    elif trend == 'SHORT':
-      if curr_l < local_min:
-        local_min = curr_l
-      if curr_h > local_max:
-        # Слом структуры вверх -> переворот в LONG
-        trend = 'LONG'
-        entry_price = curr_p
-        entry_date = curr_d
-        local_min = curr_l  # Новый ориентир для лонга
-
-  return trend, entry_price, entry_date, local_min, local_max
-
-
-trend, entry_p, entry_d, loc_min, loc_max = run_state_engine(df_archive)
-
-# Дисплей: самые свежие сверху
-df_display = df_archive.iloc[::-1].reset_index(drop=True)
-today_p = df_display.iloc[0]['Цена']
-yesterday_p = (
-    df_display.iloc[1]['Цена'] if len(df_display) > 1 else today_p
-)
-diff_val = today_p - yesterday_p
-
-# --- 4. ИНТЕРФЕЙС ---
-st.subheader('📊 4 Ключевые переменные текущего состояния')
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric(
-    label='1. Сегодняшняя цена',
-    value=f'${today_p:.2f}',
-    delta=f'{diff_val:+.2f}',
-)
-c2.metric(label='2. Вчерашняя цена', value=f'${yesterday_p:.2f}')
-c3.metric(label='3. Локальный MIN волны', value=f'${loc_min:.2f}')
-c4.metric(label='4. Локальный MAX волны', value=f'${loc_max:.2f}')
-
-st.markdown('---')
-
-st.subheader('🎯 Актуальная позиция')
-col_left, col_right = st.columns([1, 2])
-
-with col_left:
-  if trend == 'LONG':
-    st.success(
-        f'### 🟢 LONG\n**Вход:** ${entry_p:.2f}\n\n**Дата входа:** {entry_d}'
-    )
-  else:
-    st.error(
-        f'### 🔴 SHORT\n**Вход:** ${entry_p:.2f}\n\n**Дата входа:** {entry_d}'
-    )
-
-with col_right:
-  target_level = loc_min if trend == 'LONG' else loc_max
-  st.info(f"""
-    **Логика уровня переворота:**
-    * Находясь в **{trend}**, система следит за ключевым экстремумом.
-    * Переворот произойдет, если цена проколет уровень **${target_level:.2f}**.
-    """)
-
-st.subheader('📜 Полный архив (для контроля и блокнота)')
-st.dataframe(df_display.head(30), use_container_width=True)
+  loc_min
